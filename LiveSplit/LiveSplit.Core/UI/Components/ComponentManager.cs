@@ -13,11 +13,12 @@ namespace LiveSplit.UI.Components
         public const string PATH_COMPONENTS = "Components\\";
         public static string BasePath { get; set; }
         public static IDictionary<string, IComponentFactory> ComponentFactories { get; protected set; }
+        public static IDictionary<string, IRaceProviderFactory> RaceProviderFactories { get; set; }
 
         public static ILayoutComponent LoadLayoutComponent(string path, LiveSplitState state)
         {
             if (ComponentFactories == null)
-                LoadAllFactories();
+                ComponentFactories = LoadAllFactories<IComponentFactory>();
             IComponent component = null;
 
             if (string.IsNullOrEmpty(path))
@@ -30,33 +31,45 @@ namespace LiveSplit.UI.Components
             return new LayoutComponent(path, component);
         }
 
-        public static IDictionary<string, IComponentFactory> LoadAllFactories()
+        public static RaceProviderAPI LoadRaceProvider(string path, ITimerModel model)
         {
-            var path = Path.GetFullPath(Path.Combine(BasePath ?? "", PATH_COMPONENTS));
-            ComponentFactories = Directory
-                .EnumerateFiles(path, "*.dll")
-                .Select(x => 
-                    {
-                        var factory = LoadFactory(x);
-                        return new KeyValuePair<string, IComponentFactory>(Path.GetFileName(x),factory);
-                    })
-                .Where(x => x.Value != null)
-                .ToDictionary(x => x.Key, x => x.Value);
+            if (RaceProviderFactories == null)
+                RaceProviderFactories = LoadAllFactories<IRaceProviderFactory>();
+            RaceProviderAPI component = null;
 
-            return ComponentFactories;
+            if (!RaceProviderFactories.ContainsKey(path))
+                return null;
+            else
+                component = RaceProviderFactories[path].Create(model);
+
+            return component;
         }
 
-        public static IComponentFactory LoadFactory(string path)
+        public static IDictionary<string, T> LoadAllFactories<T>()
         {
-            IComponentFactory factory = null;
+            var path = Path.GetFullPath(Path.Combine(BasePath ?? "", PATH_COMPONENTS));
+            return Directory
+                .EnumerateFiles(path, "*.dll")
+                .Select(x =>
+                {
+                    var factory = LoadFactory<T>(x);
+                    return new KeyValuePair<string, T>(Path.GetFileName(x), factory);
+                })
+                .Where(x => x.Value != null)
+                .ToDictionary(x => x.Key, x => x.Value);
+        }
+
+        public static T LoadFactory<T>(string path)
+        {
+            T factory = default(T);
             try
             {
                 var attr = (ComponentFactoryAttribute)Attribute
-                	.GetCustomAttribute(Assembly.UnsafeLoadFrom(path), typeof(ComponentFactoryAttribute));
+                    .GetCustomAttribute(Assembly.UnsafeLoadFrom(path), typeof(ComponentFactoryAttribute));
 
                 if (attr != null)
                 {
-                    factory = (IComponentFactory)(attr.
+                    factory = (T)(attr.
                         ComponentFactoryClassType.
                         GetConstructor(new Type[0]).
                         Invoke(null));

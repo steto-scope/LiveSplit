@@ -121,6 +121,7 @@
     <Compile Include="Model\Comparisons\NoneComparisonGenerator.cs" />
     <Compile Include="Model\Comparisons\StandardComparisonGeneratorsFactory.cs" />
     <Compile Include="Model\Comparisons\PercentileComparisonGenerator.cs" />
+    <Compile Include="Model\IRaceInfo.cs" />
     <Compile Include="Model\NTP.cs" />
     <Compile Include="Model\DoubleTapPrevention.cs" />
     <Compile Include="Model\Input\CompositeHook.cs" />
@@ -174,6 +175,7 @@
     <Compile Include="UI\Components\IComponentFactory.cs" />
     <Compile Include="UI\Components\IDeactivatableComponent.cs" />
     <Compile Include="UI\Components\LogicComponent.cs" />
+    <Compile Include="UI\Components\RaceProviderAPI.cs" />
     <Compile Include="UI\Components\SeparatorFactory.cs" />
     <Compile Include="UI\GradientType.cs" />
     <Compile Include="UI\GraphicsCache.cs" />
@@ -299,6 +301,8 @@
     </Compile>
     <Compile Include="Web\Share\SplitsIO.cs" />
     <Compile Include="Web\Share\Twitter.cs" />
+    <Compile Include="Web\SRL\SRLFactory.cs" />
+    <Compile Include="Web\SRL\SRLRaceInfo.cs" />
     <Compile Include="Web\WebCredentials.cs" />
     <Compile Include="Web\SRL\RaceState.cs" />
     <Compile Include="Web\SRL\RaceViewers\IRaceViewer.cs" />

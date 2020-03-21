@@ -104,6 +104,7 @@ namespace LiveSplit.View
         protected bool InvalidationRequired { get; set; }
 
         public string BasePath { get; set; }
+        protected IEnumerable<RaceProviderAPI> RaceProvider { get; set; }
 
         private bool MousePassThrough
         {
@@ -185,14 +186,30 @@ namespace LiveSplit.View
 
             ComponentManager.BasePath = BasePath;
 
-            SpeedRunsLiveAPI.Instance.RacesRefreshed += SRL_RacesRefreshed;
-            SpeedRunsLiveAPI.Instance.RefreshRacesListAsync();
-
             CurrentState = new LiveSplitState(null, this, null, null, null);
 
             ComparisonGeneratorsFactory = new StandardComparisonGeneratorsFactory();
 
             Model = new DoubleTapPrevention(new TimerModel());
+
+            ComponentManager.RaceProviderFactories = ComponentManager.LoadAllFactories<IRaceProviderFactory>();
+            RaceProvider = (ComponentManager.LoadAllFactories<IRaceProviderFactory>().Values).Union(new SRLFactory[] { new SRLFactory() }).Select(x => x.Create(Model));
+            int smi = RightClickMenu.Items.IndexOf(shareMenuItem);
+            foreach (var rp in RaceProvider)
+            {
+                rp.RacesRefreshedCallback = RacesRefreshed;
+                ToolStripMenuItem rpItem = new ToolStripMenuItem()
+                {
+                    Name = $"{rp.ProviderName}racesMenuItem",
+                    Text = $"{rp.ProviderName} Races"
+                };
+                rpItem.MouseEnter += (s, e) => { rp.RefreshRacesListAsync(); };
+                RightClickMenu.Items.Insert(smi + 1, rpItem);
+                rp.RefreshRacesListAsync();
+            }
+            var srlrp = RaceProvider.FirstOrDefault(x => x.ProviderName == "SRL");
+            srlrp.JoinRace = SRL_JoinRace;
+            srlrp.CreateRace = SRL_NewRace;
 
             RunFactory = new StandardFormatsRunFactory();
             RunSaver = new XMLRunSaver();
@@ -357,8 +374,12 @@ namespace LiveSplit.View
             return goal;
         }
 
-        void SRL_RacesRefreshed(object sender, EventArgs e)
+        void RacesRefreshed(RaceProviderAPI rp)
         {
+            ToolStripMenuItem racingMenuItem = RightClickMenu.Items.Find($"{rp.ProviderName}racesMenuItem", false).FirstOrDefault() as ToolStripMenuItem;
+            if (racingMenuItem == null)
+                return;
+
             Action<ToolStripItem> addItem = null;
             Action clear = null;
 
@@ -386,99 +407,85 @@ namespace LiveSplit.View
             };
 
             clear();
-            foreach (var race in SpeedRunsLiveAPI.Instance.GetRaces())
+            foreach (var race in rp.GetRaces())
             {
-                if (race.state != 1)
+                if (race.State != 1)
                     continue;
 
-                var gameAndGoal = GetShortenedGameAndGoal(string.Format("{0} - {1}", race.game.name, race.goal));
-                var entrants = race.numentrants;
+                var gameAndGoal = GetShortenedGameAndGoal(string.Format("{0} - {1}", race.GameName, race.Goal));
+                var entrants = race.NumEntrants;
                 var plural = entrants == 1 ? "" : "s";
                 var title = string.Format("{0} ({1} Entrant{2})", gameAndGoal, entrants, plural) as string;
                 var item = new ToolStripMenuItem();
                 item.Text = title.EscapeMenuItemText();
-                item.Tag = race.id;
-                item.Click += Race_Click;
+                item.Tag = race.Id;
+                item.Click += (s, e) => { rp.JoinRace?.Invoke(Model, race.Id); };
                 addItem(item);
 
-                SetGameImage(item, race);
+                SetGameImage(rp, item, race);
             }
 
             if (racingMenuItem.DropDownItems.Count > 0)
                 addItem(new ToolStripSeparator());
 
-            foreach (var race in SpeedRunsLiveAPI.Instance.GetRaces())
+            foreach (var race in rp.GetRaces())
             {
-                if (race.state != 3)
+                if (race.State != 3)
                     continue;
 
-                var gameAndGoal = GetShortenedGameAndGoal(string.Format("{0} - {1}", race.game.name, race.goal));
-                var entrants = race.numentrants;
+                var gameAndGoal = GetShortenedGameAndGoal(string.Format("{0} - {1}", race.GameName, race.Goal));
                 var startTime = new DateTime(1970, 1, 1, 0, 0, 0, 0);
-                startTime = startTime.AddSeconds(race.time);
-
-                var finishedCount = 0;
-                var forfeitedCount = 0;
-                foreach (var entrant in race.entrants.Properties.Values)
-                {
-                    if (entrant.time >= 0)
-                        finishedCount++;
-                    if (entrant.statetext == "Forfeit")
-                        forfeitedCount++;
-                }
+                startTime = startTime.AddSeconds(race.Starttime);
 
                 var tsItem = new ToolStripMenuItem();
 
                 Action updateTitleAction = null;
                 updateTitleAction = () =>
+                {
+                    if (InvokeRequired)
                     {
-                        if (InvokeRequired)
-                        {
-                            if (!IsDisposed)
-                            {
-                                try
-                                {
-                                    Invoke(updateTitleAction);
-                                }
-                                catch { }
-                            }
-                        }
-                        else
+                        if (!IsDisposed)
                         {
                             try
                             {
-                                var timeSpan = TimeStamp.CurrentDateTime - startTime;
-                                if (timeSpan < TimeSpan.Zero)
-                                    timeSpan = TimeSpan.Zero;
-                                var time = new RegularTimeFormatter().Format(timeSpan);
-                                var title = string.Format("[{0}] {1} ({2}/{3} Finished)", time, gameAndGoal, finishedCount, entrants - forfeitedCount) as string;
-                                tsItem.Text = title.EscapeMenuItemText();
+                                Invoke(updateTitleAction);
                             }
                             catch { }
                         }
-                    };
+                    }
+                    else
+                    {
+                        try
+                        {
+                            var timeSpan = TimeStamp.CurrentDateTime - startTime;
+                            if (timeSpan < TimeSpan.Zero)
+                                timeSpan = TimeSpan.Zero;
+                            var time = new RegularTimeFormatter().Format(timeSpan);
+                            var title = string.Format("[{0}] {1} ({2}/{3} Finished)", time, gameAndGoal, race.Finishes, race.NumEntrants - race.Forfeits) as string;
+                            tsItem.Text = title.EscapeMenuItemText();
+                        }
+                        catch { }
+                    }
+                };
 
-                SetGameImage(tsItem, race);
+                SetGameImage(rp, tsItem, race);
 
                 updateTitleAction();
 
                 new System.Timers.Timer(500) { Enabled = true }.Elapsed += (s, ev) =>
-                    {
-                        updateTitleAction();
-                    };
+                {
+                    updateTitleAction();
+                };
                 tsItem.Click += (s, ev) =>
+                {
+                    if (!race.IsParticipant(rp.Username))
+                        Settings.RaceViewer.ShowRace(race);
+                    else
                     {
-                        ShareSettings.Default.Reload();
-                        var username = WebCredentials.SpeedRunsLiveIRCCredentials.Username;
-                        var racers = ((IEnumerable<string>)race.entrants.Properties.Keys).Select(x => x.ToLower());
-                        if (!racers.Contains((username ?? "").ToLower()))
-                            Settings.RaceViewer.ShowRace(race);
-                        else
-                        {
-                            tsItem.Tag = race.id;
-                            Race_Click(tsItem, null);
-                        }
-                    };
+                        tsItem.Tag = race.Id;
+                        rp.JoinRace?.Invoke(Model, race.Id);
+                    }
+                };
                 addItem(tsItem);
             }
 
@@ -487,17 +494,17 @@ namespace LiveSplit.View
 
             var newRaceItem = new ToolStripMenuItem();
             newRaceItem.Text = "New Race...";
-            newRaceItem.Click += NewRace_Click;
+            newRaceItem.Click += (s, e) => { rp.CreateRace?.Invoke(Model); };
             addItem(newRaceItem);
         }
 
-        void SetGameImage(ToolStripMenuItem item, dynamic race)
+        void SetGameImage(RaceProviderAPI pr, ToolStripMenuItem item, IRaceInfo race)
         {
             Task.Factory.StartNew(() =>
             {
                 try
                 {
-                    var image = SpeedRunsLiveAPI.Instance.GetGameImage(race.game.abbrev);
+                    var image = pr.GetGameImage(race.GameId);
                     this.InvokeIfRequired(() =>
                     {
                         try
@@ -511,19 +518,18 @@ namespace LiveSplit.View
             });
         }
 
-        void Race_Click(object sender, EventArgs e)
+        void SRL_JoinRace(ITimerModel model, string raceId)
         {
             if (ShowSRLRules())
             {
-                var raceId = (sender as ToolStripMenuItem).Tag.ToString();
-                var form = new SpeedRunsLiveForm(CurrentState, Model, raceId);
+                var form = new SpeedRunsLiveForm(CurrentState, model, raceId);
                 TopMost = false;
                 form.Show(this);
                 TopMost = CurrentState.LayoutSettings.AlwaysOnTop;
             }
         }
 
-        void NewRace_Click(object sender, EventArgs e)
+        void SRL_NewRace(ITimerModel model)
         {
             if (ShowSRLRules())
             {
@@ -541,7 +547,7 @@ namespace LiveSplit.View
                         gameCategory = gameName + " - " + gameCategory;
                         gameName = "New Game";
                     }
-                    var form = new SpeedRunsLiveForm(CurrentState, Model, gameName, id, gameCategory);
+                    var form = new SpeedRunsLiveForm(CurrentState, model, gameName, id, gameCategory);
                     form.Show(this);
                 }
                 TopMost = CurrentState.LayoutSettings.AlwaysOnTop;
@@ -577,6 +583,7 @@ namespace LiveSplit.View
                             new LiveSplitUpdateable(),
                             UpdateManagerUpdateable.Instance }
                             .Concat(ComponentManager.ComponentFactories.Values)
+                            .Concat(ComponentManager.RaceProviderFactories.Values)
                             .ToArray());
         }
 

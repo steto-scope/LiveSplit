@@ -94,3 +94,7 @@
 [submodule "LiveSplit/Libs/livesplit-core"]
 	path = LiveSplit/Libs/livesplit-core
 	url = https://github.com/CryZe/livesplit-core
+[submodule "LiveSplit/Components/LiveSplit.Racetime"]
+	path = LiveSplit/Components/LiveSplit.Racetime
+	url = https://github.com/steto-scope/LiveSplit.Racetime.git
+	branch = stable
